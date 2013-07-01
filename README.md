@@ -14,9 +14,9 @@ the best way to address modules.
 
 Supported Display:
 
-  DLR3416
+	DLR3416
 	DLO3416
-  DLG3416
+	DLG3416
 		  
 	DLR2416
 	DLO2416 
