@@ -10,17 +10,40 @@
 A fast C-Library for several 'Intelligent Led Matrix Displays'
 that works with just 2/3 wires though 2 shift registers or 1 GPIO extender chip,
 for most Arduinos, Arduino 2 and Teensy (3 included).
-version 1b1 (4 april 2013)
+++++++++++++++++++++++++++++++++++
+VERSION 1b7 (27 july 2013)
+++++++++++++++++++++++++++++++++++
 coded by Max MC Costa for s.u.m.o.t.o.y - sumotoy@gmail.com
-note:if you want to use (even parts) make a reference to the author
+note: if you want to use (even parts), inform to the author, thanks!
+--------------------------------------------------------------------------------
+Intelligent Led Matrix Displays from the past are beautiful and sexy, they was very
+expensive and mostly usud in expensive stuff but they are very readable. Today it's
+not easy to find but sometime you can find NOS for a resonable price. First problem,
+they use a lot of pins, second dei consume quite a lot of current (of course, they are
+maded of leds!). For consumption you can use an oscillator to the blank pin but some
+have a kind of intensity control maded by an internal oscillator, for pins I used
+a fantastic SPI/I2C GPIO extender chip that saves a lot of pin and can be used in
+multiples (till 8) on same pinouts using a feature called HAEN (in SPI). This library
+need just one GPIO (from microchip, called MCP23S17) for drive 4 units but adding an extra
+addressing chip (that not use any pin of your processor) 16 units can be drived.
 --------------------------------------------------------------------------------
 version note:
 this is the first working version but only partially! Actually only SPI supported and
-many code needs fix/optimization so don't use or unexpected results are assured.
+many code needs fix/optimizations, you are warned.
+--------------What is working:
+all functions enabled
+most or all displays
+2 addressing methods (max 8 units)
+--------------ToDo:
+Optimizations
+More addressing methods
+use Teensy 3 timer for scrolling
+I2C methods
+Switch registers methods
+
 */
 #ifndef IntMatrixDisp_h
 #define IntMatrixDisp_h
-
 
 #include "Arduino.h"
 
@@ -28,17 +51,17 @@ many code needs fix/optimization so don't use or unexpected results are assured.
 #include "Print.h"
 //#include <utility/mcpB23xxx.h>
 
-#define INVERTED_ADDRESSING
-#define MAX_DISPLAYS 	16	//max number of displays for current hardware
-#define DEFAULT_BRIGHTNESS 0
-#define USE_DIRECT_READ  // will save ram and it's faster but not reallocate missed chars
+#define INVERTED_ADDRESSING		// location of char 0 pos will be at right, disable this will set at left
+#define MAX_DISPLAYS 		16	// max number of displays for current hardware
+#define DEFAULT_BRIGHTNESS 	0	// Only works with displays that allow extended functions	
+#define USE_DIRECT_READ  		// will save ram and it's faster but not reallocate missed chars
 //#define DDDEBUG 1
 
-//------------ BIT and PIN definitions of MCP------------
+//------------ BIT and PIN definitions of MCP (see datasheet) ------------
 //------------port A (MCP23xx17)---------------------------------------------------
 /*
 _dataBox format:(bit7)[CUE/D6/D5/D4/D3/D2/D1/D0](bit0)
-display	    bit  	mcp-pin	 name								note
+display-----bit-----mcp-pin--nam-------------------------------note----------------------
 MCP_DATA0 	[0]		pin 21	(data)					address char/extended functions*
 MCP_DATA1 	[1]		pin 22	(data)					address char/extended functions*
 MCP_DATA2 	[2]		pin 23	(data)					address char/extended functions*
@@ -55,16 +78,19 @@ MCP_CE1 	[2]		pin 3   (display selector)		addresses module.(NOTE)*depends of chi
 MCP_CE2 	[3]		pin 4	(display selector)		addresses module.(NOTE)*depends of chip addressing method
 MCP_CE3 	[4]		pin 5	(display selector)		addresses module.(NOTE)*depends of chip addressing method
 MCP_CE4 	[5]		pin 6	(display selector)		addresses module.(NOTE)*depends of chip addressing method
-MCP_CU 		[6]		pin 7   (0:ON / 1:OFF)			access extended functions*
+MCP_CU 		[6]		pin 7   (0:ON / 1:OFF)			access extended functions(*)
 MCP_WR 		[7]		pin 8	(0:ON / 1:OFF)			write command
 ---------- other display pins -----------------------------------------------------
 MCP_CLR 			tied to +5
-MCP_BLK 			tied to +5 or 555 timer for blankin!
+MCP_BLK 			tied to +5 or 555 timer for pulse-blank (see datasheet)
 +					tied to +5
 -					tied to ground
-CE1					depends of the choosed hardware addressing method
-CE2					depends of the choosed hardware addressing method
-*note:not all chips uses extended functions
+CE1					depends of the choosed hardware addressing method(**)
+CE2					depends of the choosed hardware addressing method(**)
+(*)  not all chips uses extended functions
+(**) not all chip has 2 addressing CE pin, some (very old ones) has none! 
+If chip has none CE pin you should have extra hardware for addressing.
+
 *** HDLX-2416 extended functions mode----------------------------------------------
 *D0:		remove/store cursor at digit selected - 0:remove/1:store
 *D1:		allow digit to be blanked			  - 0:allow blank /1:NOT allow
@@ -94,32 +120,43 @@ _dataBox format:CUE/D6/D5/D4/D3/D2/D1/D0
 */
 /*
 ADDRESSING CHIP WIRING
+Since most of the pin of these displays are commoned you need an addressing method.
+This library allow to choose from different methods depends of how many displays
+you want to use.
+
 _DIRECT wiring (max 4 displays)------------------------------
-				mcp pin3  		->		  display 1	
-				mcp pin4  		->		  display 2			
-				mcp pin5  		->		  display 3	
-				mcp pin6  		->		  display 4		
+This use the internal addressing wired on GPIO chip and no extra hardware is needed.
+Some display has 2 CE pin: one must be tied to ground, the other CE pin
+should be connect as below. If only one CE pin is provided connect as below.
+				mcp pin3  		->		  CE pin display 1	
+				mcp pin4  		->		  CE pin display 2			
+				mcp pin5  		->		  CE pin display 3	
+				mcp pin6  		->		  CE pin display 4		
 				
 _74HC138 wiring (max 8 displays)-----------------------------
+This extra chip hallow you connect as much as 8 displays.
+Some display has 2 CE pin: one must be tied to ground, the other CE pin
+should be connect as below. If only one CE pin is provided connect as below.
 				mcp pin3  -> [|--U--|] <- +5v
-				mcp pin4  -> [|     |] <- display 1
-				mcp pin5  -> [|     |] <- display 2
-				gnd       -> [|     |] <- display 3
-				gnd       -> [|     |] <- display 4
-				+5V       -> [|     |] <- display 5
-				display 8 -> [|     |] <- display 6
-				gnd       -> [|_____|] <- display 7
+				mcp pin4  -> [|     |] <- CE pin display 1
+				mcp pin5  -> [|     |] <- CE pin display 2
+				gnd       -> [|     |] <- CE pin display 3
+				gnd       -> [|     |] <- CE pin display 4
+				+5V       -> [|     |] <- CE pin display 5
+		CE pin display 8  -> [|     |] <- CE pin display 6
+				gnd       -> [|_____|] <- CE pin display 7
 */
-#define MCP_CUE 	7
+#define MCP_CUE 	7// mcp port a
 
-#define MCP_A0 		0
-#define MCP_A1 		1
-#define MCP_CE1 	2
-#define MCP_CE2 	3
-#define MCP_CE3 	4
-#define MCP_CE4 	5
-#define MCP_CU 		6
-#define MCP_WR 		7
+#define MCP_A0 		0// mcp port b
+#define MCP_A1 		1// mcp port b
+#define MCP_CE1 	2// mcp port b
+#define MCP_CE2 	3// mcp port b
+#define MCP_CE3 	4// mcp port b
+#define MCP_CE4 	5// mcp port b
+#define MCP_CU 		6// mcp port b
+#define MCP_WR 		7// mcp port b
+
 #define MCP_DC 		0
 
 //-----------------------------------------------------
@@ -142,11 +179,13 @@ typedef enum MLD_type{
 };
 	
 typedef enum ADRS_CHIP{
-    _DIRECT 	= 50,//OK, fully working!
-	_74HC138 	= 52,//OK, fully working!
-	_HEF4515 	= 53,//NO!
-	_74HC4551	= 54,//NO!
-	_74HC154	= 55 //NO!
+    _DIRECT 	= 50,// (4 displays) OK, fully working!
+	_74HC138 	= 52,// (8 displays) OK, fully working!
+	/*
+	_HEF4515 	= 53,// (16 displays) NO!
+	_74HC4551	= 54,// (16 displays) NO!
+	_74HC154	= 55 // (16 displays) NO!
+	*/
 };	
 
 typedef enum PRES_VALS{
@@ -161,8 +200,8 @@ typedef enum PRES_VALS{
 class IntMatrixDisp : public Print {
   public:
 	IntMatrixDisp		(const uint8_t cs_pin,const byte addr,uint8_t MLD_type);//SPI
-	IntMatrixDisp		(const byte addr,uint8_t MLD_type);//I2C
-	IntMatrixDisp		(const byte dta,const byte clk,const byte ltc,uint8_t MLD_type);//switch register
+	//IntMatrixDisp		(const byte addr,uint8_t MLD_type);//I2C
+	//IntMatrixDisp		(const byte dta,const byte clk,const byte ltc,uint8_t MLD_type);//switch register
 	
 	void 				init(const uint8_t displays,uint8_t ADRS_CHIP=_DIRECT);
 	/*
@@ -173,7 +212,7 @@ class IntMatrixDisp : public Print {
 		_74HC154	=	MAX 16 displays
 	*/
 	void 				clear(byte display=1);
-	void 				clearDigit(uint8_t digit);//SOFT clear. Put SPACE in the digit
+	void 				clearDigit(uint8_t digit);
 	void 				clearAll();
 	void 				home(void);
 	uint8_t 			getCursor(void);
@@ -186,7 +225,7 @@ class IntMatrixDisp : public Print {
 	void 				printNumber(long number,bool useEfx=false);
 	void 				printFloat(float number,byte digits=2,uint8_t PRES_VALS=1,bool useEfx=0);
 	void 				scroll(char* testo,unsigned int speed=80);
-	void 				setBrightness(byte display,uint8_t value=7);//0...7
+	void 				setBrightness(uint8_t value=7,byte display=0);//0...7
 	uint8_t 			getDigitsPerUnit(void);
 	float 				byteToDb(uint8_t byteVal,float maxdbVal=6.5);
 	void				setCue(int digit);
@@ -210,7 +249,7 @@ class IntMatrixDisp : public Print {
 	void 				endSend();
 
     uint16_t 			byte2uint16(byte high_byte, byte low_byte);
-	void 				_fastShiftOut(uint8_t val);
+	//void 				_fastShiftOut(uint8_t val);
 	
 	const static byte		_IOCON = 0x0A;
 	const static byte		_IODIR = 0x00;
@@ -218,11 +257,6 @@ class IntMatrixDisp : public Print {
   private:
 	//--------------------------------------------- PRIVATE DATA
 	byte 				_inited;
-	//uint8_t 			_dtaPin;
-	//uint8_t 			_clkPin;
-	//uint8_t 			_ltcPin;
-	//uint8_t 			_csPin;
-	//uint8_t 			_address;
 	uint8_t 			_displays;
 	uint8_t 			_dispType;
 	uint8_t    			_digitPerUnit;
